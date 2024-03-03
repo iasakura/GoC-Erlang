@@ -1,0 +1,2 @@
+-module(channel).
+-export([]).
