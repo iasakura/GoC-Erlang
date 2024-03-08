@@ -3,41 +3,11 @@
 
 -export([compile/1]).
 
--type domain() :: integer() | 'true' | 'false' | 'ok' | 'Q'.
--type token() :: domain().
-
--record(location, {}).
--type location() :: #location{}.
-
--record(address, {}).
--type address() :: #address{}.
-
-% transition. ∂とpre, postはここに持たせることにした。
--record(transition, {
-          porality :: 'pos' | 'neg',
-          address :: address() | 'nil',
-          pre :: [location()],
-          post :: [location()]
-         }).
--type transition() :: #transition{}.
-
--record(tokil, {
-          location :: location(),
-          token :: token()
-         }).
--type tokil() :: #tokil{}.
-
-% deltaはpstructにおく。これはコンパイル結果でも使い回す。
--record(pstruct, {
-          locations = [] :: [location()],
-          transitions = [] :: [transition()],
-          % 引数がpreにマッチしない引数に対しては'nil'を返す。
-          % 返り値はpostにマッチする。
-          delta :: fun((transition(), [tokil()]) -> [tokil()] | 'nil')
-         }).
-
--type pstruct() :: #pstruct{}.
+-include("petri_structure.hrl").
 
 
 -spec compile(pstruct()) -> 'ok'.
-compile(2) -> ng.
+compile(#pstruct{delta = Delta, locations = Locations, transitions = Transitions}) ->
+    LocationTable = maps:from_list(lists:map(fun(#location{id = Id}) -> {Id, locked_cell:create()} end, Locations)),
+    lists:foreach(fun(T) -> compile_transition(T, LocationTable, Delta) end, Transitions),
+    ok.
