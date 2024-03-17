@@ -5,12 +5,12 @@
 -export([create/2]).
 
 
--spec(create(transition(), #{string() => pid()}) -> 'ok').
+-spec(create(transition(), #{string() => pid()}) -> pid()).
 create(#transition{porality = Porality, address = Address, pre = Pre, post = Post, delta = Delta}, LocationTable) ->
     PreSorted = lists:sort(Pre),
     PostSorted = lists:sort(Post),
-    PreLocations = maps:from_list(list:map(fun({location, Id}) -> {Id, maps:get(Id, LocationTable)} end, PreSorted)),
-    PostLocations = maps:from_list(list:map(fun({location, Id}) -> {Id, maps:get(Id, LocationTable)} end, PostSorted)),
+    PreLocations = maps:from_list(lists:map(fun({location, Id}) -> {Id, maps:get(Id, LocationTable)} end, PreSorted)),
+    PostLocations = maps:from_list(lists:map(fun({location, Id}) -> {Id, maps:get(Id, LocationTable)} end, PostSorted)),
     spawn(fun() -> loop(Porality, Address, PreLocations, PostLocations, Delta) end).
 
 
@@ -21,23 +21,24 @@ try_lock(LockType, Locks) ->
     try_lock(LockType, lists:sort(maps:to_list(Locks)), []).
 
 
+-spec(try_lock(read | write, [{string(), pid()}], [pid()]) -> ok | nil).
 try_lock(_, [], _) -> ok;
-try_lock(type, [{_, Loc} | Rest], Locked) ->
-    res = case type of
+try_lock(LockType, [{_, Loc} | Rest], Locked) ->
+    Res = case LockType of
               read -> locked_cell:read_lock(Loc);
               write -> locked_cell:write_lock(Loc)
           end,
-    case res of
-        ok -> try_lock(type, Rest, [Loc | Locked]);
+    case Res of
+        ok -> try_lock(LockType, Rest, [Loc | Locked]);
         _ -> lists:foreach(fun(L) -> locked_cell:unlock(L) end, Locked), nil
     end.
 
 
--spec(fetch_pre_values(#{string() => pid()}) -> 'ok' | 'nil').
+-spec(fetch_pre_values(#{string() => pid()}) -> {'ok', tokil()} | 'nil').
 fetch_pre_values(PreLocations) ->
     maybe
         ok ?= try_lock(read, PreLocations),
-        maps:map(fun(Id, L) -> {Id, locked_cell:read(L)} end, PreLocations)
+        {ok, maps:map(fun(Id, L) -> {Id, locked_cell:read(L)} end, PreLocations)}
     else
         _ -> nil
     end.
@@ -46,7 +47,7 @@ fetch_pre_values(PreLocations) ->
 %% PreLocationsの値がPreTokilの値と一致しているかどうかをチェックする。
 -spec(check_pre_tokil(tokil(), #{string() => pid()}) -> boolean()).
 check_pre_tokil(PreTokil, PreLocations) ->
-    maps:all(fun({Id, Value}) -> Value == locked_cell:read(maps:get(Id, PreLocations)) end, PreTokil).
+    maps:fold(fun(Id, Value, Acc) -> Acc andalso Value == locked_cell:read(maps:get(Id, PreLocations)) end, true, PreTokil).
 
 
 -spec(update_with_post_values(address() | 'nil', #{string() => pid()}, #{string() => pid()}, tokil(), tokil()) -> 'ok' | 'nil').
@@ -69,7 +70,7 @@ update_with_post_values(Address, PreLocations, PostLocations, PreTokil, PostToki
 -spec(loop(porality(), address() | 'nil', #{string() => pid()}, #{string() => pid()}, delta()) -> 'ok').
 loop(Porality, Address, PreLocations, PostLocations, Delta) ->
     maybe
-        PreTokil ?= fetch_pre_values(PreLocations),
+        {ok, PreTokil} ?= fetch_pre_values(PreLocations),
         {ok, PostTokil} ?= Delta(PreTokil),
         ok ?= update_with_post_values(Address, PreLocations, PostLocations, PreTokil, PostTokil)
     end,

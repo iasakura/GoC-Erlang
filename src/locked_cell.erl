@@ -5,7 +5,7 @@
 
 -spec create() -> pid().
 create() ->
-    spawn(fun() -> loop([], nil) end).
+    spawn(fun() -> loop({reads, []}, nil) end).
 
 
 -spec read_lock(pid()) -> 'ok' | nil.
@@ -20,26 +20,26 @@ write_lock(Pid) -> Pid ! {self(), write_lock}, receive {Pid, ok} -> ok; {Pid, ni
 unlock(Pid) -> Pid ! {self(), unlock}, receive {Pid, ok} -> ok; {Pid, {error, Reason}} -> {error, Reason} end.
 
 
--spec read(pid()) -> any | {error, string()}.
+-spec read(pid()) -> any() | {error, string()}.
 read(Pid) -> Pid ! {self(), read}, receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
 
 
--spec set(pid(), any) -> 'ok' | {error, string()}.
+-spec set(pid(), any()) -> 'ok' | {error, string()}.
 set(Pid, NewValue) -> Pid ! {self(), set, NewValue}, receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
 
 
--spec loop([{'reads', pid()}] | {'writes', pid()}, any) -> 'ok'.
+-spec loop({'reads', [pid()]} | {'writes', pid()}, any()) -> no_return().
 loop(Locks, Value) ->
     receive
         {From, read_lock} ->
             case Locks of
-                {reads, _} -> From ! {self(), ok}, loop([From | Locks], Value);
+                {reads, Reads} -> From ! {self(), ok}, loop({reads, [From | Reads]}, Value);
                 {writes, _} -> From ! {self(), nil}, loop(Locks, Value)
             end;
         {From, write_lock} ->
             case Locks of
-                {reads, []} -> From ! {self(), ok}, loop([writes, From], Value);
-                {reads, _} -> From ! {self(), nil}, loop([writes, From], Value);
+                {reads, []} -> From ! {self(), ok}, loop({writes, From}, Value);
+                {reads, _} -> From ! {self(), nil}, loop(Locks, Value);
                 {writes, _} -> From ! {self(), nil}, loop(Locks, Value)
             end;
         {From, unlock} ->
@@ -47,25 +47,25 @@ loop(Locks, Value) ->
                 {reads, Reads} ->
                     {Ps, Rest} = lists:partition(fun(P) -> P == From end, Reads),
                     case Ps of
-                        [] -> From ! {self(), {error, "You haven't locked yet"}}, loop(Rest, Value);
-                        _ -> From ! {self(), 'ok'}, loop(Rest, Value)
+                        [] -> From ! {self(), {error, "You haven't locked yet"}}, loop(Locks, Value);
+                        _ -> From ! {self(), 'ok'}, loop({reads, Rest}, Value)
                     end;
                 {writes, Write} ->
                     if
-                        Write == From -> From ! {self(), 'ok'}, loop([], Value);
+                        Write == From -> From ! {self(), 'ok'}, loop({reads, []}, Value);
                         true -> From ! {self(), {error, "You haven't locked yet"}}, loop(Locks, Value)
                     end
             end;
         {From, read} ->
             case Locks of
                 {reads, Reads} ->
-                    case lists:member(Reads, From) of
+                    case lists:member(From, Reads) of
                         true -> From ! {self(), Value}, loop(Locks, Value);
                         false -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, Value)
                     end;
                 {writes, Write} ->
                     if
-                        From == Write -> From ! {self(), Value}, loop(Locks, Value);
+                        From =:= Write -> From ! {self(), Value}, loop(Locks, Value);
                         true -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, Value)
                     end
             end;
@@ -74,8 +74,8 @@ loop(Locks, Value) ->
                 {reads, _} -> From ! {self(), "You don't have lock"}, loop(Locks, Value);
                 {writes, Write} ->
                     if
-                        From == Write -> From ! {self(), Value}, loop(Locks, Value);
-                        true -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, NewValue)
+                        From =:= Write -> From ! 'ok', loop(Locks, NewValue);
+                        true -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, Value)
                     end
             end
     end.

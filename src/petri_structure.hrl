@@ -18,8 +18,8 @@
 -record(transition, {
           porality :: porality(),
           address :: address() | nil,
-          pre :: [location:location()],
-          post :: [location:location()],
+          pre :: [location()],
+          post :: [location()],
           delta :: delta()
          }).
 -type transition() :: #transition{}.
@@ -28,7 +28,7 @@
 
 % deltaはpstructにおく。これはコンパイル結果でも使い回す。
 -record(pstruct, {
-          locations = [] :: [location:location()],
+          locations = [] :: [location()],
           transitions = [] :: [transition()]
          }).
 
