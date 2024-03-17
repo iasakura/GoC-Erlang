@@ -1,6 +1,6 @@
 -module(locked_cell).
 
--export([create/0, read_lock/1, write_lock/1, unlock/1, read/1, set/2]).
+-export([create/0, read_lock/1, blocking_read_lock/1, write_lock/1, blocking_write_lock/1, unlock/1, read/1, set/2]).
 
 
 -spec create() -> pid().
@@ -12,8 +12,22 @@ create() ->
 read_lock(Pid) -> Pid ! {self(), read_lock}, receive {Pid, ok} -> ok; {Pid, nil} -> nil end.
 
 
+blocking_read_lock(L) ->
+    case locked_cell:read_lock(L) of
+        ok -> ok;
+        _ -> blocking_write_lock(L)
+    end.
+
+
 -spec write_lock(pid()) -> 'ok' | nil.
 write_lock(Pid) -> Pid ! {self(), write_lock}, receive {Pid, ok} -> ok; {Pid, nil} -> nil end.
+
+
+blocking_write_lock(L) ->
+    case locked_cell:write_lock(L) of
+        ok -> ok;
+        _ -> blocking_write_lock(L)
+    end.
 
 
 -spec unlock(pid()) -> 'ok' | {error, string()}.
@@ -25,7 +39,10 @@ read(Pid) -> Pid ! {self(), read}, receive {Pid, Value} -> Value; {Pid, {error, 
 
 
 -spec set(pid(), any()) -> 'ok' | {error, string()}.
-set(Pid, NewValue) -> Pid ! {self(), set, NewValue}, receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
+set(Pid, NewValue) ->
+    io:format("pid: ~p, arg: ~p", [Pid, NewValue]),
+    Pid ! {self(), set, NewValue},
+    receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
 
 
 -spec loop({'reads', [pid()]} | {'writes', pid()}, any()) -> no_return().
@@ -74,7 +91,7 @@ loop(Locks, Value) ->
                 {reads, _} -> From ! {self(), "You don't have lock"}, loop(Locks, Value);
                 {writes, Write} ->
                     if
-                        From =:= Write -> From ! 'ok', loop(Locks, NewValue);
+                        From =:= Write -> From ! {self(), 'ok'}, loop(Locks, NewValue);
                         true -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, Value)
                     end
             end

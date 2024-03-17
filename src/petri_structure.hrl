@@ -1,5 +1,6 @@
 -type domain() :: integer() | true | false | ok | q.
--type token() :: domain().
+-record(token, {domain :: domain()}).
+-type token() :: #token{}.
 
 -record(location, {id :: string()}).
 -type location() :: #location{}.
@@ -8,9 +9,9 @@
 -type address() :: #address{}.
 
 % transitionの遷移関数を表す。
-% 引数がpreにマッチしない引数に対してはnilを返す。
+% 引数がpreにマッチしない引数に対しては例外を投げる。
 % 返り値はpostにマッチする。
--type delta() :: fun((tokil()) -> {ok, tokil()} | nil).
+-type delta() :: fun((tokil() | token()) -> {ok, (tokil() | token())}).
 
 -type porality() :: pos | neg | internal.
 
