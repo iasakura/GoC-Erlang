@@ -1,12 +1,20 @@
+-type name() :: string().
+
+-type operation() :: 'tensor' | 'turnstile' | 'imply'.
+-type address() ::
+        {operation(), 'left' | 'right', address()} |
+        {'variable', name(), address()} |
+        {reference, 'write' | 'read', address()} |
+        {semaphore, grab | release, address()} |
+        q |
+        a.
+
 -type domain() :: integer() | true | false | ok | q.
 -record(token, {domain :: domain()}).
 -type token() :: #token{}.
 
 -record(location, {id :: string()}).
 -type location() :: #location{}.
-
--record(address, {}).
--type address() :: #address{}.
 
 % transitionの遷移関数を表す。
 % 引数がpreにマッチしない引数に対しては例外を投げる。
@@ -17,7 +25,6 @@
 
 % transition. ∂とpre, postはここに持たせることにした。
 -record(transition, {
-          porality :: porality(),
           address :: address() | nil,
           pre :: [location()],
           post :: [location()],

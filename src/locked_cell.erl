@@ -1,6 +1,16 @@
 -module(locked_cell).
 
--export([create/0, read_lock/1, blocking_read_lock/1, write_lock/1, blocking_write_lock/1, unlock/1, read/1, set/2]).
+-export([create/0,
+         read_lock/1,
+         blocking_read_lock/1,
+         write_lock/1,
+         blocking_write_lock/1,
+         unlock/1,
+         read/1,
+         unsafe_read/1,
+         set/2,
+         with_read_lock/2,
+         with_write_lock/2]).
 
 
 -spec create() -> pid().
@@ -38,9 +48,13 @@ unlock(Pid) -> Pid ! {self(), unlock}, receive {Pid, ok} -> ok; {Pid, {error, Re
 read(Pid) -> Pid ! {self(), read}, receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
 
 
+-spec unsafe_read(pid()) -> any() | {error, string()}.
+unsafe_read(Pid) -> Pid ! {self(), unsafe_read}, receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
+
+
 -spec set(pid(), any()) -> 'ok' | {error, string()}.
 set(Pid, NewValue) ->
-    io:format("pid: ~p, arg: ~p", [Pid, NewValue]),
+    io:format("pid: ~p, arg: ~p~n", [Pid, NewValue]),
     Pid ! {self(), set, NewValue},
     receive {Pid, Value} -> Value; {Pid, {error, Reason}} -> {error, Reason} end.
 
@@ -86,6 +100,7 @@ loop(Locks, Value) ->
                         true -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, Value)
                     end
             end;
+        {From, unsafe_read} -> From ! {self(), Value}, loop(Locks, Value);
         {From, set, NewValue} ->
             case Locks of
                 {reads, _} -> From ! {self(), "You don't have lock"}, loop(Locks, Value);
@@ -95,4 +110,28 @@ loop(Locks, Value) ->
                         true -> From ! {self(), {error, "You don't have lock"}}, loop(Locks, Value)
                     end
             end
+    end.
+
+
+-spec with_read_lock(pid(), fun(() -> any())) -> any() | {error, string()}.
+with_read_lock(Pid, Fun) ->
+    maybe
+        ok ?= read_lock(Pid),
+        R = Fun(),
+        unlock(Pid),
+        R
+    else
+        _ -> {error, "Failed to lock"}
+    end.
+
+
+-spec with_write_lock(pid(), fun(() -> any())) -> any() | {error, string()}.
+with_write_lock(Pid, Fun) ->
+    maybe
+        ok ?= write_lock(Pid),
+        R = Fun(),
+        unlock(Pid),
+        R
+    else
+        _ -> {error, "Failed to lock"}
     end.

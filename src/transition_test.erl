@@ -1,14 +1,13 @@
 -module(transition_test).
 
--include("petri_structure.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include("petri_structure.hrl").
 
 
 transition1() ->
     #transition{
-      porality = pos,
       address = nil,
-      pre = [{location, "1"}],
+      pre = [#location{id = "1"}],
       post = [],
       delta = fun(Tokil) ->
                       case Tokil of
@@ -34,3 +33,32 @@ transition1_test() ->
     erlang:yield(),
     erlang:yield(),
     {ok, #token{domain = 'ok'}} = transition:read(Tr1).
+
+
+-spec(transition2() -> transition()).
+transition2() ->
+    #transition{
+      address = nil,
+      pre = [],
+      post = [#location{id = "1"}],
+      delta = fun(Token) ->
+                      case Token of
+                          #token{domain = q} -> {ok, #{"1" => #token{domain = ok}}};
+                          _ -> nil
+                      end
+              end
+     }.
+
+
+transition2_test() ->
+    Loc1 = locked_cell:create(),
+    LocationTable = #{"1" => Loc1},
+    Tr2 = transition:create(transition2(), LocationTable),
+    transition:write(Tr2, #token{domain = q}),
+    erlang:yield(),
+    erlang:yield(),
+    erlang:yield(),
+    erlang:yield(),
+    ok = locked_cell:blocking_read_lock(Loc1),
+    #token{domain = 'ok'} = locked_cell:read(Loc1),
+    locked_cell:unlock(Loc1).

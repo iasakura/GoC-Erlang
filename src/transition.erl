@@ -1,19 +1,26 @@
 -module(transition).
 
+-define(NODEBUG, true).
 -include("petri_structure.hrl").
+-include_lib("eunit/include/eunit.hrl").
 
 -export([create/2, read/1, write/2]).
 
 -type(io() :: internal | {neg, pid()} | {pos, pid()}).
 
 
+-spec(porality(address() | nil) -> pos | neg | internal).
+porality(nil) -> internal;
+porality(A) -> address:porality(A).
+
+
 -spec(create(transition(), #{string() => pid()}) -> pid()).
-create(#transition{porality = Porality, pre = Pre, post = Post, delta = Delta}, LocationTable) ->
+create(#transition{address = Address, pre = Pre, post = Post, delta = Delta}, LocationTable) ->
     PreSorted = lists:sort(Pre),
     PostSorted = lists:sort(Post),
     PreLocations = maps:from_list(lists:map(fun({location, Id}) -> {Id, maps:get(Id, LocationTable)} end, PreSorted)),
     PostLocations = maps:from_list(lists:map(fun({location, Id}) -> {Id, maps:get(Id, LocationTable)} end, PostSorted)),
-    IO = case Porality of
+    IO = case porality(Address) of
              internal -> internal;
              neg -> {neg, locked_cell:create()};
              pos -> {pos, locked_cell:create()}
@@ -43,13 +50,7 @@ try_lock(LockType, [{_, Loc} | Rest], Locked) ->
 
 
 -spec(fetch_pre_values(#{string() => pid()}) -> {'ok', tokil()} | 'nil').
-fetch_pre_values(PreLocations) ->
-    maybe
-        ok ?= try_lock(read, PreLocations),
-        {ok, maps:map(fun(_, L) -> locked_cell:read(L) end, PreLocations)}
-    else
-        _ -> nil
-    end.
+fetch_pre_values(PreLocations) -> {ok, maps:map(fun(_, L) -> locked_cell:unsafe_read(L) end, PreLocations)}.
 
 
 %% PreLocationsの値がPreTokilの値と一致しているかどうかをチェックする。
@@ -61,16 +62,28 @@ check_pre_tokil(PreTokil, PreLocations) ->
 -spec(update_with_post_values(#{string() => pid()}, #{string() => pid()}, tokil(), tokil()) -> 'ok' | 'nil').
 update_with_post_values(PreLocations, PostLocations, PreTokil, PostTokil) ->
     Locs = maps:merge(PreLocations, PostLocations),
-    case try_lock(write, Locs) of
+    L = try_lock(write, Locs),
+    ?debugFmt("Locs ~p, Lock: ~p~n", [Locs, L]),
+    case L of
         nil -> nil;
         ok ->
-            maybe
-                true ?= check_pre_tokil(PreTokil, PreLocations),
-                maps:foreach(fun(_, Loc) -> locked_cell:set(Loc, nil) end, PreLocations),
-                maps:foreach(fun(Id, Loc) -> locked_cell:set(Loc, maps:get(PostTokil, Id)) end, PostLocations)
-            else
-                _ -> nil
-            end
+            Res =
+                maybe
+                    true ?= check_pre_tokil(PreTokil, PreLocations),
+                    maps:foreach(fun(_, Loc) ->
+                                         locked_cell:set(Loc, nil)
+                                 end,
+                                 PreLocations),
+                    maps:foreach(fun(Id, Loc) ->
+                                         ?debugFmt("Id: ~p, Loc: ~p, Val: ~p~n", [Id, Loc, maps:get(Id, PostTokil)]),
+                                         locked_cell:set(Loc, maps:get(Id, PostTokil))
+                                 end,
+                                 PostLocations)
+                else
+                    _ -> nil
+                end,
+            lists:foreach(fun({_, Cell}) -> locked_cell:unlock(Cell) end, lists:sort(maps:to_list(Locs))),
+            Res
     end.
 
 
@@ -80,36 +93,39 @@ update_with_post_values(PreLocations, PostLocations, PreTokil, PostTokil) ->
                   #{string() => pid()},
                   delta()) -> 'ok').
 update_loop(IO, PreLocations, PostLocations, Delta) ->
-    io:format("io: ~p, preloc: ~p~n", [IO, PreLocations]),
+    ?debugFmt("io: ~p, preloc: ~p~n", [IO, PreLocations]),
     case IO of
         internal ->
             maybe
                 {ok, PreTokil} ?= fetch_pre_values(PreLocations),
+                ?debugFmt("pretokil: ~p~n", [PreTokil]),
                 {ok, PostTokil} ?= Delta(PreTokil),
+                ?debugFmt("posttokil: ~p~n", [PostTokil]),
                 ok ?= update_with_post_values(PreLocations, PostLocations, PreTokil, PostTokil)
             end,
             update_loop(IO, PreLocations, PostLocations, Delta);
         {neg, Cell} ->
             maybe
                 % 入力から更新
-                ok = locked_cell:blocking_read_lock(Cell),
-                Val = locked_cell:read(Cell),
-                locked_cell:unlock(Cell),
+                Val = locked_cell:unsafe_read(Cell),
+                ?debugFmt("pretoken: ~p~n", [Val]),
                 %
                 {ok, PostTokil} ?= Delta(Val),
-                ok ?= update_with_post_values(PreLocations, PostLocations, #{}, PostTokil)
+                ?debugFmt("posttokil: ~p~n", [PostTokil]),
+                ok ?= update_with_post_values(PreLocations, PostLocations, #{}, PostTokil),
+                locked_cell:with_write_lock(Cell, fun() -> locked_cell:set(Cell, nil) end)
             end,
             update_loop(IO, PreLocations, PostLocations, Delta);
         {pos, Cell} ->
             maybe
                 {ok, PreTokil} ?= fetch_pre_values(PreLocations),
-                io:format("pretokil: ~p~n", [PreTokil]),
+                ?debugFmt("pretokil: ~p~n", [PreTokil]),
                 {ok, #token{domain = _} = Token} ?= Delta(PreTokil),
-                io:format("token: ~p", [Token]),
+                ?debugFmt("token: ~p~n", [Token]),
                 % 出力を更新
-                ok = locked_cell:blocking_write_lock(Cell),
-                locked_cell:set(Cell, Token),
-                locked_cell:unlock(Cell)
+                ok ?= update_with_post_values(PreLocations, PostLocations, PreTokil, #{}),
+                locked_cell:with_write_lock(Cell, fun() -> locked_cell:set(Cell, Token) end),
+                ?debugFmt("done~n", [])
             end,
             update_loop(IO, PreLocations, PostLocations, Delta)
     end.
@@ -123,10 +139,15 @@ receive_loop(IO, PreLocations, PostLocations, Delta) ->
             case IO of
                 {pos, Cell} ->
                     begin
-                        ok = locked_cell:blocking_read_lock(Cell),
-                        Val = locked_cell:read(Cell),
-                        locked_cell:unlock(Cell),
-                        From ! {self(), {ok, Val}}
+                        case locked_cell:unsafe_read(Cell) of
+                            #token{domain = _} = Val ->
+                                ok = locked_cell:blocking_read_lock(Cell),
+                                Val = locked_cell:read(Cell),
+                                ?debugFmt("Val: ~p~n", [Val]),
+                                locked_cell:unlock(Cell),
+                                From ! {self(), {ok, Val}};
+                            _ -> From ! {self(), nil}
+                        end
                     end;
                 _ -> From ! {self(), nil}
             end;
@@ -137,7 +158,7 @@ receive_loop(IO, PreLocations, PostLocations, Delta) ->
                         ok = locked_cell:blocking_write_lock(Cell),
                         locked_cell:set(Cell, V),
                         locked_cell:unlock(Cell),
-                        From ! ok
+                        From ! {self(), ok}
                     end;
                 _ -> From ! {self(), nil}
             end
@@ -145,7 +166,9 @@ receive_loop(IO, PreLocations, PostLocations, Delta) ->
     receive_loop(IO, PreLocations, PostLocations, Delta).
 
 
+-spec(read(pid()) -> {ok, any()} | nil).
 read(Pid) -> Pid ! {self(), read}, receive {Pid, Value} -> Value end.
 
 
+-spec(write(pid(), any()) -> ok | nil).
 write(Pid, V) -> Pid ! {self(), write, V}, receive {Pid, Res} -> Res end.
