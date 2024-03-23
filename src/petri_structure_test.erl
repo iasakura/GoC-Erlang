@@ -3,8 +3,6 @@
 -include_lib("eunit/include/eunit.hrl").
 -include("petri_structure.hrl").
 
--define(NODEBUG, true).
-
 
 pstruct1() ->
     #pstruct{
@@ -59,4 +57,86 @@ pstruct1_test() ->
                        _ -> erlang:yield(), Loop()
                    end
            end,
-    Loop().
+    ok = Loop().
+
+
+pstruct2() ->
+    #pstruct{
+      locations = [#location{id = "1"}, #location{id = "2"}, #location{id = "3"}, #location{id = "4"}, #location{id = "5"}],
+      transitions =
+          [#transition{
+             address = q,
+             pre = [],
+             post = [#location{id = "1"}, #location{id = "2"}, #location{id = "3"}],
+             delta = fun(Token) ->
+                             case Token of
+                                 #token{domain = q} ->
+                                     {ok,
+                                      #{
+                                        "1" => #token{domain = 1},
+                                        "2" => #token{domain = 0},
+                                        "3" => #token{domain = q}
+                                       }};
+                                 _ -> nil
+                             end
+                     end
+            },
+           #transition{
+             address = nil,
+             pre = [#location{id = "1"}, #location{id = "2"}],
+             post = [#location{id = "2"}, #location{id = "4"}],
+             delta = fun(Tokil) ->
+                             case Tokil of
+                                 #{
+                                   "1" := #token{domain = N},
+                                   "2" := #token{domain = _}
+                                  } ->
+                                     {ok,
+                                      #{
+                                        "4" => #token{domain = ok},
+                                        "2" => #token{domain = N}
+                                       }};
+                                 _ -> nil
+                             end
+                     end
+            },
+           #transition{
+             address = nil,
+             pre = [#location{id = "2"}, #location{id = "3"}],
+             post = [#location{id = "2"}, #location{id = "5"}],
+             delta = fun(Tokil) ->
+                             case Tokil of
+                                 #{
+                                   "2" := #token{domain = N},
+                                   "3" := #token{domain = q}
+                                  } ->
+                                     {ok,
+                                      #{
+                                        "2" => #token{domain = N},
+                                        "5" => #token{domain = N}
+                                       }};
+                                 _ -> nil
+                             end
+                     end
+            },
+           #transition{
+             address = a,
+             pre = [#location{id = "4"}, #location{id = "5"}],
+             post = [],
+             delta = fun(Tokil) -> case Tokil of #{"4" := #token{domain = ok}, "5" := #token{domain = N}} -> {ok, #token{domain = N =:= 0}}; _ -> nil end end
+            }]
+     }.
+
+
+pstruct2_test() ->
+    PS = petri_structure:create(pstruct2()),
+    ok = petri_structure:write(PS, q, #token{domain = q}),
+    Loop = fun Loop() ->
+                   case petri_structure:read(PS, a) of
+                       {ok, #token{domain = V}} -> V;
+                       _ -> erlang:yield(), Loop()
+                   end
+           end,
+    Res = Loop(),
+    io:format("Res = ~p~n", [Res]),
+    true = is_boolean(Res).

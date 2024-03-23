@@ -9,7 +9,7 @@
         q |
         a.
 
--type domain() :: integer() | true | false | ok | q.
+-type domain() :: integer() | boolean() | ok | q.
 -record(token, {domain :: domain()}).
 -type token() :: #token{}.
 
