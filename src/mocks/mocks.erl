@@ -1,9 +1,12 @@
--module(petri_structure_test).
+-module(mocks).
 
--include_lib("eunit/include/eunit.hrl").
--include("petri_structure.hrl").
+-include("../petri_structure/petri_structure.hrl").
+
+-export([pstruct1/0, pstruct2/0]).
 
 
+-spec(pstruct1() -> pstruct()).
+% Fig. 11
 pstruct1() ->
     #pstruct{
       locations = [#location{id = "1"}, #location{id = "2"}, #location{id = "3"}, #location{id = "4"}, #location{id = "5"}, #location{id = "6"}],
@@ -47,19 +50,8 @@ pstruct1() ->
      }.
 
 
-pstruct1_test() ->
-    error_logger:tty(false),
-    PS = petri_structure:create(pstruct1()),
-    ok = petri_structure:write(PS, q, #token{domain = q}),
-    Loop = fun Loop() ->
-                   case petri_structure:read(PS, a) of
-                       {ok, #token{domain = V}} -> V;
-                       _ -> erlang:yield(), Loop()
-                   end
-           end,
-    ok = Loop().
-
-
+-spec(pstruct2() -> pstruct()).
+% Fig. 12
 pstruct2() ->
     #pstruct{
       locations = [#location{id = "1"}, #location{id = "2"}, #location{id = "3"}, #location{id = "4"}, #location{id = "5"}],
@@ -123,20 +115,9 @@ pstruct2() ->
              address = a,
              pre = [#location{id = "4"}, #location{id = "5"}],
              post = [],
-             delta = fun(Tokil) -> case Tokil of #{"4" := #token{domain = ok}, "5" := #token{domain = N}} -> {ok, #token{domain = N =:= 0}}; _ -> nil end end
+             delta =
+                 fun(Tokil) ->
+                         case Tokil of #{"4" := #token{domain = ok}, "5" := #token{domain = N}} -> {ok, #token{domain = N =:= 0}}; _ -> nil end
+                 end
             }]
      }.
-
-
-pstruct2_test() ->
-    PS = petri_structure:create(pstruct2()),
-    ok = petri_structure:write(PS, q, #token{domain = q}),
-    Loop = fun Loop() ->
-                   case petri_structure:read(PS, a) of
-                       {ok, #token{domain = V}} -> V;
-                       _ -> erlang:yield(), Loop()
-                   end
-           end,
-    Res = Loop(),
-    io:format("Res = ~p~n", [Res]),
-    true = is_boolean(Res).

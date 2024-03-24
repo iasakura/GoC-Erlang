@@ -2,5 +2,3 @@
 -module(goc_erlang).
 
 -export([]).
-
--include("petri_structure.hrl").

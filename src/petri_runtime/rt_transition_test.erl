@@ -1,8 +1,8 @@
--module(transition_test).
+-module(rt_transition_test).
 
 -define(NODEBUG, true).
 -include_lib("eunit/include/eunit.hrl").
--include("petri_structure.hrl").
+-include("../petri_structure/petri_structure.hrl").
 
 
 transition1() ->
@@ -20,15 +20,15 @@ transition1() ->
 
 
 transition1_test() ->
-    Loc1 = locked_cell:create(),
+    Loc1 = rt_locked_cell:create(),
     LocationTable = #{"1" => Loc1},
-    Tr1 = transition:create(transition1(), LocationTable),
-    ok = locked_cell:blocking_write_lock(Loc1),
-    locked_cell:set(Loc1, #token{domain = q}),
+    Tr1 = rt_transition:create(transition1(), LocationTable),
+    ok = rt_locked_cell:blocking_write_lock(Loc1),
+    rt_locked_cell:set(Loc1, #token{domain = q}),
     ?debugFmt("~p~n", [ok]),
-    locked_cell:unlock(Loc1),
+    rt_locked_cell:unlock(Loc1),
     Loop = fun Loop() ->
-                   case transition:read(Tr1) of
+                   case rt_transition:read(Tr1) of
                        {ok, #token{domain = 'ok'}} -> 'ok';
                        X -> ?debugFmt("~p~n", [X]), erlang:yield(), Loop()
                    end
@@ -52,16 +52,16 @@ transition2() ->
 
 
 transition2_test() ->
-    Loc1 = locked_cell:create(),
+    Loc1 = rt_locked_cell:create(),
     LocationTable = #{"1" => Loc1},
-    Tr2 = transition:create(transition2(), LocationTable),
-    transition:write(Tr2, #token{domain = q}),
+    Tr2 = rt_transition:create(transition2(), LocationTable),
+    rt_transition:write(Tr2, #token{domain = q}),
 
     Loop = fun Loop() ->
                    V = maybe
-                           ok ?= locked_cell:read_lock(Loc1),
-                           X = locked_cell:read(Loc1),
-                           locked_cell:unlock(Loc1),
+                           ok ?= rt_locked_cell:read_lock(Loc1),
+                           X = rt_locked_cell:read(Loc1),
+                           rt_locked_cell:unlock(Loc1),
                            X
                        else
                            _ -> nil

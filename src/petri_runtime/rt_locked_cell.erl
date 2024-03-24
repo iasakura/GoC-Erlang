@@ -1,4 +1,4 @@
--module(locked_cell).
+-module(rt_locked_cell).
 
 -export([create/0,
          read_lock/1,
@@ -23,7 +23,7 @@ read_lock(Pid) -> Pid ! {self(), read_lock}, receive {Pid, ok} -> ok; {Pid, nil}
 
 
 blocking_read_lock(L) ->
-    case locked_cell:read_lock(L) of
+    case read_lock(L) of
         ok -> ok;
         _ -> blocking_write_lock(L)
     end.
@@ -34,7 +34,7 @@ write_lock(Pid) -> Pid ! {self(), write_lock}, receive {Pid, ok} -> ok; {Pid, ni
 
 
 blocking_write_lock(L) ->
-    case locked_cell:write_lock(L) of
+    case write_lock(L) of
         ok -> ok;
         _ -> blocking_write_lock(L)
     end.

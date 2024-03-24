@@ -13,13 +13,15 @@
 -record(token, {domain :: domain()}).
 -type token() :: #token{}.
 
--record(location, {id :: string()}).
+-type loc_id() :: string() | [integer() | loc_id()].
+
+-record(location, {id :: loc_id()}).
 -type location() :: #location{}.
 
 % transitionの遷移関数を表す。
 % 引数がpreにマッチしない引数に対しては例外を投げる。
 % 返り値はpostにマッチする。
--type delta() :: fun((tokil() | token()) -> {ok, (tokil() | token())}).
+-type delta() :: fun((tokil() | token()) -> {ok, (tokil() | token())} | nil).
 
 -type porality() :: pos | neg | internal.
 
@@ -32,7 +34,7 @@
          }).
 -type transition() :: #transition{}.
 
--type tokil() :: #{string() => token()}.
+-type tokil() :: #{location() => token()}.
 
 % deltaはpstructにおく。これはコンパイル結果でも使い回す。
 -record(pstruct, {
